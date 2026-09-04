@@ -34,6 +34,7 @@ Comprobar la CLI instalada:
 
 ```bash
 miner --help
+miner --version
 ```
 
 El futuro comando `miner scan` recibirá una organización de GitHub y un archivo
