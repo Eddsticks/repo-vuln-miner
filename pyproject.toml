@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "repo-vuln-miner"
+dynamic = ["version"]
+description = "CLI para minar vulnerabilidades en repositorios mediante GitHub y CodeQL."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.10,<3.0",
+    "requests>=2.32,<3.0",
+    "typer>=0.15,<1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<10.0",
+]
+
+[project.scripts]
+miner = "repo_vuln_miner.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "repo_vuln_miner.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
