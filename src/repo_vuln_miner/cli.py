@@ -7,7 +7,7 @@ import typer
 from repo_vuln_miner import __version__
 from repo_vuln_miner.codeql.analysis import CodeQLRunner
 from repo_vuln_miner.codeql.sarif import SarifNormalizer
-from repo_vuln_miner.github.catalog import GitHubCatalog
+from repo_vuln_miner.github.catalog import GitHubAuthenticationError, GitHubCatalog
 from repo_vuln_miner.languages.adapters import default_language_registry
 from repo_vuln_miner.orchestration.scan import ScanOrchestrationError, ScanOrchestrator
 from repo_vuln_miner.reporting.serialization import write_report_json
@@ -64,7 +64,7 @@ def scan(
             selected_repositories=repository or None,
             progress=lambda message: typer.echo(message, err=True),
         )
-    except ScanOrchestrationError as error:
+    except (GitHubAuthenticationError, ScanOrchestrationError) as error:
         typer.echo(f"Error: {error.message}", err=True)
         raise typer.Exit(code=1) from error
 
