@@ -77,8 +77,6 @@ class RepositoryResult(BaseModel):
         detected = set(self.detected_languages)
         analyzed = set(self.analyzed_languages)
 
-        if not analyzed.issubset(detected):
-            raise ValueError("analyzed_languages must be included in detected_languages")
         if self.status is AnalysisStatus.ANALYZED and not analyzed:
             raise ValueError("analyzed repositories must have an analyzed language")
         if self.status is AnalysisStatus.FAILED and self.error is None:
