@@ -1,13 +1,13 @@
 # Repo Vulnerability Miner
 
 CLI en Python para recuperar repositorios de GitHub y analizar hallazgos de
-seguridad mediante CodeQL. El análisis de organizaciones se incorporará en las
-siguientes funcionalidades del proyecto.
+seguridad mediante CodeQL.
 
 ## Requisitos
 
 - Python 3.11 o superior.
-- Git y CodeQL CLI instalados para ejecutar los futuros análisis.
+- Git y CodeQL CLI instalados.
+- Un token de GitHub configurado en `GITHUB_TOKEN`.
 
 ## Desarrollo
 
@@ -37,6 +37,12 @@ miner --help
 miner --version
 ```
 
+Configurar el token requerido para las consultas a GitHub:
+
+```bash
+export GITHUB_TOKEN="tu-token"
+```
+
 Ejecutar un escaneo y guardar el informe JSON:
 
 ```bash
@@ -50,20 +56,20 @@ miner scan --organization mi-organizacion --output report.json --repository api 
 ```
 
 El progreso se muestra por stderr; el informe JSON se escribe solo en el archivo
-indicado por `--output`.
+indicado por `--output`. Un repositorio que no pueda analizarse se registra en el
+informe y no interrumpe el procesamiento de los demás.
 
 ## Autenticación con GitHub
 
-El miner usará `GITHUB_TOKEN` de forma opcional para aumentar los límites de la
-API y acceder a repositorios privados autorizados. Para organizaciones públicas
-puede ejecutarse sin token.
+El miner requiere `GITHUB_TOKEN` para todas las consultas a la API de GitHub.
+Configúralo en la sesión de terminal antes de ejecutar `miner scan`:
 
 ```bash
 export GITHUB_TOKEN="tu-token"
 ```
 
-No guardes el token en archivos versionados ni lo incluyas en la URL de un
-repositorio.
+No guardes el token en archivos versionados, archivos `.env` que vayan a
+versionarse ni en la URL de un repositorio.
 
 ## Lenguajes soportados
 
