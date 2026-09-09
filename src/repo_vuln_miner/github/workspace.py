@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Callable, Self
 
-from repo_vuln_miner.github_catalog import GitHubRepository
+from repo_vuln_miner.github.catalog import GitHubRepository
 
 GitRunner = Callable[..., subprocess.CompletedProcess[str]]
 

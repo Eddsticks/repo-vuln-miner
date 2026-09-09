@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from repo_vuln_miner.codeql_analysis import CodeQLAnalysisArtifact
-from repo_vuln_miner.github_catalog import GitHubRepository
-from repo_vuln_miner.language_adapters import (
+from repo_vuln_miner.codeql.analysis import CodeQLAnalysisArtifact
+from repo_vuln_miner.codeql.sarif import SarifNormalizationError, SarifNormalizer
+from repo_vuln_miner.github.catalog import GitHubRepository
+from repo_vuln_miner.github.workspace import ClonedRepository
+from repo_vuln_miner.languages.adapters import (
     CodeQLConfiguration,
     LanguageAdapter,
     ResolvedLanguageAdapter,
     default_language_registry,
 )
-from repo_vuln_miner.repository_workspace import ClonedRepository
-from repo_vuln_miner.sarif_normalization import SarifNormalizationError, SarifNormalizer
 
 
 def cloned_repository(tmp_path: Path) -> ClonedRepository:

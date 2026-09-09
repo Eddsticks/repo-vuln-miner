@@ -7,9 +7,9 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
-from repo_vuln_miner.codeql_analysis import CodeQLAnalysisArtifact
-from repo_vuln_miner.models import Finding
-from repo_vuln_miner.repository_workspace import ClonedRepository
+from repo_vuln_miner.codeql.analysis import CodeQLAnalysisArtifact
+from repo_vuln_miner.domain.models import Finding
+from repo_vuln_miner.github.workspace import ClonedRepository
 
 
 class SarifNormalizationError(RuntimeError):

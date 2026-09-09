@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from repo_vuln_miner.github_catalog import GitHubRepository
-from repo_vuln_miner.repository_workspace import RepositoryCloneError, RepositoryWorkspace
+from repo_vuln_miner.github.catalog import GitHubRepository
+from repo_vuln_miner.github.workspace import RepositoryCloneError, RepositoryWorkspace
 
 
 def make_repository(clone_url: str = "https://github.com/expressjs/express.git") -> GitHubRepository:

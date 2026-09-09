@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from repo_vuln_miner.language_adapters import ResolvedLanguageAdapter
-from repo_vuln_miner.repository_workspace import ClonedRepository
+from repo_vuln_miner.github.workspace import ClonedRepository
+from repo_vuln_miner.languages.adapters import ResolvedLanguageAdapter
 
 CodeQLRunnerProcess = Callable[..., subprocess.CompletedProcess[str]]
 

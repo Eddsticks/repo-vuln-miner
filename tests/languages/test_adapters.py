@@ -2,7 +2,7 @@
 
 import pytest
 
-from repo_vuln_miner.language_adapters import (
+from repo_vuln_miner.languages.adapters import (
     CodeQLConfiguration,
     LanguageAdapter,
     LanguageAdapterRegistry,

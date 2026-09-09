@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from repo_vuln_miner.models import OrganizationScan
+from repo_vuln_miner.domain.models import OrganizationScan
 
 
 def write_report_json(report: OrganizationScan, output: Path) -> None:

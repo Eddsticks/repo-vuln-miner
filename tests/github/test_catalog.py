@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 import requests
 
-from repo_vuln_miner.github_catalog import (
+from repo_vuln_miner.github.catalog import (
     GITHUB_API_VERSION,
     GitHubCatalog,
     GitHubCatalogError,

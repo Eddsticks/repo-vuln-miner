@@ -8,10 +8,10 @@ from typing import Any
 
 import pytest
 
-from repo_vuln_miner.codeql_analysis import CodeQLAnalysisError, CodeQLRunner
-from repo_vuln_miner.github_catalog import GitHubRepository
-from repo_vuln_miner.language_adapters import default_language_registry
-from repo_vuln_miner.repository_workspace import ClonedRepository
+from repo_vuln_miner.codeql.analysis import CodeQLAnalysisError, CodeQLRunner
+from repo_vuln_miner.github.catalog import GitHubRepository
+from repo_vuln_miner.github.workspace import ClonedRepository
+from repo_vuln_miner.languages.adapters import default_language_registry
 
 
 def make_cloned_repository(tmp_path: Path) -> ClonedRepository:
