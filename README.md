@@ -52,3 +52,9 @@ export GITHUB_TOKEN="tu-token"
 
 No guardes el token en archivos versionados ni lo incluyas en la URL de un
 repositorio.
+
+## Lenguajes soportados
+
+La primera versión habilita análisis CodeQL para JavaScript y TypeScript con la
+suite `javascript-security-extended`. El registro de adaptadores permite añadir
+otros lenguajes sin modificar el catálogo de GitHub ni la lógica de clonación.
