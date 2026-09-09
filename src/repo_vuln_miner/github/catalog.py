@@ -20,6 +20,14 @@ class GitHubCatalogError(RuntimeError):
     """Error controlado al comunicarse con la API de GitHub."""
 
 
+class GitHubAuthenticationError(GitHubCatalogError):
+    """No se configuró un token válido para las solicitudes GitHub."""
+
+    def __init__(self) -> None:
+        self.message = "GITHUB_TOKEN must be configured"
+        super().__init__(self.message)
+
+
 class GitHubResponseError(GitHubCatalogError):
     """La API devolvió una respuesta que no cumple el contrato esperado."""
 
@@ -54,6 +62,9 @@ class GitHubCatalog:
         base_url: str = DEFAULT_API_URL,
         timeout: float = 30.0,
     ) -> None:
+        normalized_token = token.strip() if isinstance(token, str) else ""
+        if not normalized_token:
+            raise GitHubAuthenticationError
         normalized_base_url = base_url.rstrip("/")
         if not normalized_base_url:
             raise ValueError("base_url must not be blank")
@@ -68,13 +79,15 @@ class GitHubCatalog:
             "User-Agent": f"repo-vuln-miner/{__version__}",
             "X-GitHub-Api-Version": GITHUB_API_VERSION,
         }
-        if token:
-            self._headers["Authorization"] = f"Bearer {token}"
+        self._headers["Authorization"] = f"Bearer {normalized_token}"
 
     @classmethod
     def from_environment(cls, **kwargs: Any) -> GitHubCatalog:
-        """Construye el catálogo usando ``GITHUB_TOKEN`` si está configurado."""
-        return cls(token=os.environ.get("GITHUB_TOKEN"), **kwargs)
+        """Construye el catálogo usando el ``GITHUB_TOKEN`` obligatorio."""
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if not token:
+            raise GitHubAuthenticationError
+        return cls(token=token, **kwargs)
 
     def list_repositories(
         self,

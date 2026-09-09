@@ -9,6 +9,7 @@ import requests
 
 from repo_vuln_miner.github.catalog import (
     GITHUB_API_VERSION,
+    GitHubAuthenticationError,
     GitHubCatalog,
     GitHubCatalogError,
     GitHubRepository,
@@ -72,7 +73,7 @@ def test_list_repositories_follows_pagination_and_orders_results() -> None:
             FakeResponse([repository_payload("body-parser"), repository_payload("express")]),
         ]
     )
-    catalog = GitHubCatalog(session=session)
+    catalog = GitHubCatalog(token="test-token", session=session)
 
     repositories = catalog.list_repositories("expressjs")
 
@@ -87,7 +88,7 @@ def test_list_repositories_follows_pagination_and_orders_results() -> None:
     assert session.calls[1]["params"] is None
 
 
-def test_catalog_uses_optional_token_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_catalog_uses_required_token_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "test-token")
     session = FakeSession([FakeResponse([])])
 
@@ -97,19 +98,33 @@ def test_catalog_uses_optional_token_from_environment(monkeypatch: pytest.Monkey
     assert session.calls[0]["headers"]["X-GitHub-Api-Version"] == GITHUB_API_VERSION
 
 
-def test_catalog_omits_authorization_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+@pytest.mark.parametrize("token", [None, "", "   "])
+def test_catalog_rejects_missing_or_blank_environment_token(
+    monkeypatch: pytest.MonkeyPatch,
+    token: str | None,
+) -> None:
+    if token is None:
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_TOKEN", token)
     session = FakeSession([FakeResponse([])])
 
-    GitHubCatalog.from_environment(session=session).list_repositories("expressjs")
+    with pytest.raises(GitHubAuthenticationError, match="GITHUB_TOKEN"):
+        GitHubCatalog.from_environment(session=session)
 
-    assert "Authorization" not in session.calls[0]["headers"]
+    assert session.calls == []
+
+
+@pytest.mark.parametrize("token", [None, "", "   "])
+def test_catalog_rejects_missing_or_blank_direct_token(token: str | None) -> None:
+    with pytest.raises(GitHubAuthenticationError, match="GITHUB_TOKEN"):
+        GitHubCatalog(token=token)
 
 
 def test_catalog_supports_a_custom_api_base_url() -> None:
     session = FakeSession([FakeResponse([])])
 
-    GitHubCatalog(session=session, base_url="https://github.example/api/v3/").list_repositories(
+    GitHubCatalog(token="test-token", session=session, base_url="https://github.example/api/v3/").list_repositories(
         "expressjs"
     )
 
@@ -119,7 +134,7 @@ def test_catalog_supports_a_custom_api_base_url() -> None:
 def test_list_repositories_filters_case_insensitively() -> None:
     session = FakeSession([FakeResponse([repository_payload("multer"), repository_payload("express")])])
 
-    repositories = GitHubCatalog(session=session).list_repositories(
+    repositories = GitHubCatalog(token="test-token", session=session).list_repositories(
         "expressjs", selected_names=["EXPRESS"]
     )
 
@@ -130,7 +145,7 @@ def test_list_repositories_rejects_missing_selected_names() -> None:
     session = FakeSession([FakeResponse([repository_payload("express")])])
 
     with pytest.raises(RequestedRepositoriesNotFound, match="multer"):
-        GitHubCatalog(session=session).list_repositories(
+        GitHubCatalog(token="test-token", session=session).list_repositories(
             "expressjs", selected_names=["express", "multer"]
         )
 
@@ -145,7 +160,7 @@ def test_get_languages_normalizes_and_orders_values() -> None:
         default_branch="master",
     )
 
-    languages = GitHubCatalog(session=session).get_languages(repository)
+    languages = GitHubCatalog(token="test-token", session=session).get_languages(repository)
 
     assert languages == ["javascript", "typescript"]
     assert session.calls[0]["url"].endswith("/repos/expressjs/express/languages")
@@ -160,11 +175,13 @@ def test_get_languages_normalizes_and_orders_values() -> None:
 )
 def test_list_repositories_rejects_invalid_responses(response: FakeResponse) -> None:
     with pytest.raises(GitHubResponseError):
-        GitHubCatalog(session=FakeSession([response])).list_repositories("expressjs")
+        GitHubCatalog(token="test-token", session=FakeSession([response])).list_repositories(
+            "expressjs"
+        )
 
 
 def test_catalog_wraps_request_errors() -> None:
     session = FakeSession([requests.ConnectionError("network unavailable")])
 
     with pytest.raises(GitHubCatalogError, match="GitHub request failed"):
-        GitHubCatalog(session=session).list_repositories("expressjs")
+        GitHubCatalog(token="test-token", session=session).list_repositories("expressjs")

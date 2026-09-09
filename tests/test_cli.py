@@ -130,6 +130,22 @@ def test_scan_global_error_preserves_existing_output(tmp_path: Path, monkeypatch
     assert output.read_text(encoding="utf-8") == "existing report"
 
 
+def test_scan_without_github_token_preserves_existing_output(tmp_path: Path, monkeypatch) -> None:
+    output = tmp_path / "result.json"
+    output.write_text("existing report", encoding="utf-8")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    result = CliRunner().invoke(
+        app,
+        ["scan", "--organization", "example", "--output", str(output)],
+    )
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "Error: GITHUB_TOKEN must be configured" in result.stderr
+    assert output.read_text(encoding="utf-8") == "existing report"
+
+
 def test_scan_without_repository_option_does_not_apply_a_filter(tmp_path: Path, monkeypatch) -> None:
     output = tmp_path / "result.json"
     scan_orchestrator = FakeScanOrchestrator(partial_report())
