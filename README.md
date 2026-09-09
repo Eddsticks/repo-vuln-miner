@@ -37,8 +37,20 @@ miner --help
 miner --version
 ```
 
-El futuro comando `miner scan` recibirá una organización de GitHub y un archivo
-de salida JSON.
+Ejecutar un escaneo y guardar el informe JSON:
+
+```bash
+miner scan --organization mi-organizacion --output report.json
+```
+
+Para limitar la corrida a repositorios concretos, repetir `--repository`:
+
+```bash
+miner scan --organization mi-organizacion --output report.json --repository api --repository web
+```
+
+El progreso se muestra por stderr; el informe JSON se escribe solo en el archivo
+indicado por `--output`.
 
 ## Autenticación con GitHub
 

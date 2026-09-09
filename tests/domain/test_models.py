@@ -108,6 +108,16 @@ def test_finding_location_must_be_positive() -> None:
         )
 
 
+def test_codeql_analysis_language_can_differ_from_detected_language() -> None:
+    repository = make_repository(
+        detected_languages=["typescript"],
+        analyzed_languages=["javascript"],
+        findings=[Finding(language="javascript", rule_id="js/rule", message="Finding")],
+    )
+
+    assert repository.analyzed_languages == ["javascript"]
+
+
 def test_repository_names_must_be_unique_case_insensitively() -> None:
     with pytest.raises(ValidationError, match="repository names must be unique"):
         OrganizationScan(
