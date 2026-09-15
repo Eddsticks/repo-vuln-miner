@@ -11,6 +11,7 @@ from repo_vuln_miner.github.catalog import GitHubAuthenticationError, GitHubCata
 from repo_vuln_miner.github.workspace import RepositoryWorkspace
 from repo_vuln_miner.languages.adapters import default_language_registry
 from repo_vuln_miner.orchestration.scan import ScanOrchestrationError, ScanOrchestrator
+from repo_vuln_miner.orchestration.sbom import SbomOrchestrationError, SbomOrchestrator
 from repo_vuln_miner.reporting.serialization import write_report_json
 from repo_vuln_miner.syft.generation import SyftRunner
 
@@ -51,6 +52,14 @@ def create_scan_orchestrator(repos_directory: Path = Path(".miner/repos")) -> Sc
     )
 
 
+def create_sbom_orchestrator(repos_directory: Path) -> SbomOrchestrator:
+    """Construye dependencias locales para regenerar SBOMs sin GitHub ni CodeQL."""
+    return SbomOrchestrator(
+        workspace_factory=lambda: RepositoryWorkspace(repos_directory=repos_directory),
+        syft_runner_factory=SyftRunner,
+    )
+
+
 @app.command()
 def scan(
     organization: str = typer.Option(..., "--organization", help="Organización de GitHub a analizar."),
@@ -65,6 +74,11 @@ def scan(
         "--repos-dir",
         help="Directorio persistente de clones administrados por el miner.",
     ),
+    sbom_dir: Path | None = typer.Option(
+        None,
+        "--sbom-dir",
+        help="Directorio para los CycloneDX JSON; por defecto, sboms junto al informe.",
+    ),
 ) -> None:
     """Genera SBOMs, analiza repositorios GitHub y escribe el informe JSON indicado."""
     try:
@@ -72,7 +86,7 @@ def scan(
             organization,
             selected_repositories=repository or None,
             progress=lambda message: typer.echo(message, err=True),
-            sbom_directory=output.parent / "sboms",
+            sbom_directory=sbom_dir or output.parent / "sboms",
         )
     except (GitHubAuthenticationError, ScanOrchestrationError) as error:
         typer.echo(f"Error: {error.message}", err=True)
@@ -91,6 +105,49 @@ def scan(
         f"SBOMs: {report.sbom_summary.generated} generated, "
         f"{report.sbom_summary.failed} failed, {report.sbom_summary.skipped} skipped, "
         f"{report.sbom_summary.components} components",
+        err=True,
+    )
+
+
+@app.command()
+def sbom(
+    organization: str = typer.Option(..., "--organization", help="Organización de los clones registrados."),
+    output: Path = typer.Option(..., "--output", help="Archivo JSON del informe SBOM."),
+    output_dir: Path = typer.Option(..., "--output-dir", help="Directorio para los CycloneDX JSON."),
+    repository: list[str] | None = typer.Option(
+        None,
+        "--repository",
+        help="Repositorio registrado a incluir; puede repetirse.",
+    ),
+    repos_dir: Path = typer.Option(
+        Path(".miner/repos"),
+        "--repos-dir",
+        help="Directorio persistente de clones administrados por el miner.",
+    ),
+) -> None:
+    """Regenera SBOMs desde clones locales sin ejecutar CodeQL ni consultar GitHub."""
+    try:
+        report = create_sbom_orchestrator(repos_dir).generate(
+            organization,
+            output_dir,
+            selected_repositories=repository or None,
+            progress=lambda message: typer.echo(message, err=True),
+        )
+    except SbomOrchestrationError as error:
+        typer.echo(f"Error: {error.message}", err=True)
+        raise typer.Exit(code=1) from error
+
+    try:
+        typer.echo(f"Writing SBOM report to {output}", err=True)
+        write_report_json(report, output)
+    except OSError:
+        typer.echo("Error: SBOM report could not be written", err=True)
+        raise typer.Exit(code=1) from None
+
+    typer.echo(
+        f"SBOM complete: {report.summary.repositories} repositories, "
+        f"{report.summary.generated} generated, {report.summary.failed} failed, "
+        f"{report.summary.skipped} skipped, {report.summary.components} components",
         err=True,
     )
 
