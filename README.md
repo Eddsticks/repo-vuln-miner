@@ -148,6 +148,62 @@ Ambos informes usan `write_report_json`, que omite valores ausentes y reemplaza
 el archivo atómicamente. Al cargar un informe, los contadores derivados se
 recalculan desde los resultados; los demás campos desconocidos se rechazan.
 
+## Ejecutor Syft desde Python
+
+`SyftRunner` ya genera SBOMs sobre clones locales. Su conexión con `miner scan`
+y el comando `miner sbom` se incorporarán en las siguientes features.
+Requiere el binario `syft` en el `PATH`; consulta la
+[instalación oficial de Syft](https://oss.anchore.com/docs/installation/syft/)
+y comprueba que responde con `syft version -o json`.
+
+Ejemplo con un repositorio previamente registrado por el miner:
+
+```python
+from pathlib import Path
+
+from repo_vuln_miner.github.workspace import RepositoryWorkspace
+from repo_vuln_miner.syft.generation import SyftRunner
+
+runner = SyftRunner(timeout=300.0)
+with RepositoryWorkspace(repos_directory=Path(".miner/repos")) as workspace:
+    repository = workspace.open_registered("mi-organizacion", "api")
+    result = runner.generate(repository, Path("results/sboms"))
+
+print(result.model_dump_json(indent=2, exclude_none=True))
+```
+
+Se utiliza una instancia de `SyftRunner` por corrida secuencial, compartida entre
+sus repositorios. Consulta la versión una sola vez mediante `syft version -o json`
+y conserva tanto la versión como un eventual error de esa consulta. El timeout
+se aplica a cada comando y puede configurarse en el constructor; `syft_binary`
+permite indicar una ubicación alternativa del ejecutable.
+
+La generación utiliza `syft scan dir:<clon> -o cyclonedx-json=<temporal>`, según
+la [referencia de la CLI](https://oss.anchore.com/docs/reference/syft/cli/).
+Comprueba el código de salida y la estructura básica del JSON: formato
+CycloneDX, versión de especificación, versión del documento cuando existe y
+lista de componentes con nombre y tipo. Esta comprobación no es una validación
+completa contra el esquema CycloneDX. Una lista vacía o ausente representa cero
+componentes; `metadata.component` no se incluye en el conteo.
+
+Solo después de validar se mueve el archivo original, sin reserializarlo, a
+`<output-directory>/<run-id>/<owner>/<repository>.cdx.json`. `run_id` es un
+identificador único de la instancia. Las corridas nuevas conservan los archivos
+anteriores; repetir un repositorio ya generado en la misma corrida produce un
+error sin sobrescribirlo. La salida debe estar fuera del clon para no alterar
+el contenido que Syft inventaría.
+
+Los fallos se comunican como `SyftExecutionError`, con `stage`, `message` y
+`syft_version` cuando se conoce. Las etapas son `syft_version`, `sbom_source`,
+`sbom_generation`, `sbom_validation` y `sbom_write`. Los mensajes no incorporan
+stdout ni stderr del proceso. Una generación fallida elimina su salida temporal
+y permite procesar los demás repositorios con la misma instancia.
+
+Las pruebas del ejecutor (`pytest tests/syft`) simulan procesos y archivos;
+no requieren Syft instalado ni acceso a red. La comprobación con el binario
+real y el contraste con archivos de dependencias corresponden a la feature
+de verificación y documentación.
+
 ## Autenticación con GitHub
 
 El miner requiere `GITHUB_TOKEN` para todas las consultas a la API de GitHub.
