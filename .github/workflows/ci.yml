@@ -6,10 +6,12 @@ on:
       - main
       - develop
       - "feature/**"
+      - "release/**"
   pull_request:
     branches:
       - main
       - develop
+      - "release/**"
 
 permissions:
   contents: read
@@ -33,3 +35,33 @@ jobs:
 
       - name: Ejecutar pruebas
         run: python -m pytest
+
+  syft-integration:
+    name: Syft integration (1.48.0)
+    runs-on: ubuntu-latest
+    env:
+      SYFT_VERSION: "1.48.0"
+      SYFT_BINARY: ${{ runner.temp }}/syft/syft
+      EXPECTED_SYFT_VERSION: "1.48.0"
+    steps:
+      - name: Obtener código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: python -m pip install -e ".[dev]"
+
+      - name: Instalar Syft fijado
+        run: |
+          mkdir -p "$RUNNER_TEMP/syft"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/syft/syft.tar.gz" "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          tar -xzf "$RUNNER_TEMP/syft/syft.tar.gz" -C "$RUNNER_TEMP/syft" syft
+          "$SYFT_BINARY" version -o json
+
+      - name: Verificar inventarios reales
+        run: python -m pytest tests/syft/test_real_integration.py
