@@ -15,3 +15,7 @@ dist/
 
 # Configuración local que puede contener credenciales
 .env
+
+# Clones persistentes e informes locales del miner
+.miner/
+results/

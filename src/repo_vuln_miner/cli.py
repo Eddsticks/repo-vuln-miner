@@ -8,6 +8,7 @@ from repo_vuln_miner import __version__
 from repo_vuln_miner.codeql.analysis import CodeQLRunner
 from repo_vuln_miner.codeql.sarif import SarifNormalizer
 from repo_vuln_miner.github.catalog import GitHubAuthenticationError, GitHubCatalog
+from repo_vuln_miner.github.workspace import RepositoryWorkspace
 from repo_vuln_miner.languages.adapters import default_language_registry
 from repo_vuln_miner.orchestration.scan import ScanOrchestrationError, ScanOrchestrator
 from repo_vuln_miner.reporting.serialization import write_report_json
@@ -37,13 +38,14 @@ def root(
         typer.echo(ctx.get_help())
 
 
-def create_scan_orchestrator() -> ScanOrchestrator:
+def create_scan_orchestrator(repos_directory: Path = Path(".miner/repos")) -> ScanOrchestrator:
     """Construye las dependencias por defecto del comando de escaneo."""
     return ScanOrchestrator(
         catalog=GitHubCatalog.from_environment(),
         language_registry=default_language_registry(),
         codeql_runner=CodeQLRunner(),
         sarif_normalizer=SarifNormalizer(),
+        workspace_factory=lambda: RepositoryWorkspace(repos_directory=repos_directory),
     )
 
 
@@ -56,10 +58,15 @@ def scan(
         "--repository",
         help="Repositorio a incluir; puede repetirse.",
     ),
+    repos_dir: Path = typer.Option(
+        Path(".miner/repos"),
+        "--repos-dir",
+        help="Directorio persistente de clones administrados por el miner.",
+    ),
 ) -> None:
     """Analiza repositorios GitHub y escribe el informe JSON indicado."""
     try:
-        report = create_scan_orchestrator().scan(
+        report = create_scan_orchestrator(repos_directory=repos_dir).scan(
             organization,
             selected_repositories=repository or None,
             progress=lambda message: typer.echo(message, err=True),
