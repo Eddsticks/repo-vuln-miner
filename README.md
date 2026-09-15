@@ -56,6 +56,12 @@ Para limitar la corrida a repositorios concretos, repetir `--repository`:
 miner scan --organization mi-organizacion --output report.json --repository api --repository web
 ```
 
+Para escribir los SBOMs del escaneo en otro directorio, indicar `--sbom-dir`:
+
+```bash
+miner scan --organization mi-organizacion --output results/scan.json --sbom-dir results/cyclonedx
+```
+
 El progreso se muestra por stderr; el informe JSON se escribe solo en el archivo
 indicado por `--output`. Los SBOMs se escriben por defecto en el directorio
 `sboms/` junto al informe, con una carpeta única por corrida. Un repositorio que
@@ -103,6 +109,45 @@ el catálogo con `read_manifest()` y abrir un clon mediante
 `open_registered(owner, name)` dentro de su contexto `with`, sin consultar GitHub.
 El manifiesto admite el uso secuencial; no ejecutes procesos concurrentes sobre
 el mismo directorio de clones.
+
+## Regenerar SBOMs sin CodeQL
+
+El comando `sbom` reutiliza exclusivamente los clones y el manifiesto local.
+No requiere `GITHUB_TOKEN`, no consulta GitHub y no ejecuta CodeQL. Para todos
+los clones registrados de una organización:
+
+```bash
+miner sbom \
+  --organization mi-organizacion \
+  --repos-dir .miner/repos \
+  --output-dir results/regenerated-sboms \
+  --output results/sbom-report.json
+```
+
+Para regenerar únicamente algunos repositorios, repetir `--repository`:
+
+```bash
+miner sbom \
+  --organization mi-organizacion \
+  --repos-dir .miner/repos \
+  --output-dir results/regenerated-sboms \
+  --output results/sbom-report.json \
+  --repository api --repository web
+```
+
+`--organization` se compara con el propietario registrado en el manifiesto y
+`--repository` con sus nombres, sin distinguir mayúsculas de minúsculas. Pedir
+un repositorio que no está registrado termina el comando antes de generar
+archivos. Si no hay clones para esa organización, se escribe un informe válido
+con cero repositorios.
+
+El comando abre cada clon registrado, comprueba su commit y estado local, y
+genera los CycloneDX JSON en `--output-dir/<run-id>/<owner>/<repository>.cdx.json`.
+El informe `--output` es un `SbomReport` independiente: cada entrada contiene
+`full_name`, el commit disponible y el estado SBOM; su resumen incluye
+`generated`, `failed`, `skipped` y `components`. Un clon dañado o un error de
+Syft se registra para ese repositorio y el resto continúa. Los informes y los
+SBOMs de corridas anteriores no se modifican.
 
 ## Modelos de resultados SBOM (preparación de 0.2.0)
 
@@ -160,9 +205,8 @@ recalculan desde los resultados; los demás campos desconocidos se rechazan.
 
 ## Ejecutor Syft desde Python
 
-`SyftRunner` genera SBOMs sobre clones locales y `miner scan` lo utiliza
-automáticamente. El comando independiente `miner sbom` se incorporará en la
-siguiente feature.
+`SyftRunner` genera SBOMs sobre clones locales. `miner scan` lo utiliza
+automáticamente y `miner sbom` permite regenerarlos desde los clones persistentes.
 Requiere el binario `syft` en el `PATH`; consulta la
 [instalación oficial de Syft](https://oss.anchore.com/docs/installation/syft/)
 y comprueba que responde con `syft version -o json`.
