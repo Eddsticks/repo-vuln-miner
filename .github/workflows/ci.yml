@@ -41,7 +41,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SYFT_VERSION: "1.48.0"
-      SYFT_BINARY: ${{ runner.temp }}/syft/syft
       EXPECTED_SYFT_VERSION: "1.48.0"
     steps:
       - name: Obtener código
@@ -61,7 +60,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/syft"
           curl --fail --location --silent --show-error --output "$RUNNER_TEMP/syft/syft.tar.gz" "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
           tar -xzf "$RUNNER_TEMP/syft/syft.tar.gz" -C "$RUNNER_TEMP/syft" syft
-          "$SYFT_BINARY" version -o json
+          echo "$RUNNER_TEMP/syft" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/syft/syft" version -o json
 
       - name: Verificar inventarios reales
         run: python -m pytest tests/syft/test_real_integration.py
