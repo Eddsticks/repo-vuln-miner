@@ -43,7 +43,8 @@ Configurar el token requerido para las consultas a GitHub:
 export GITHUB_TOKEN="tu-token"
 ```
 
-Ejecutar un escaneo y guardar el informe JSON:
+Ejecutar un escaneo, generar un SBOM CycloneDX JSON por repositorio y guardar el
+informe JSON consolidado:
 
 ```bash
 miner scan --organization mi-organizacion --output report.json
@@ -56,8 +57,17 @@ miner scan --organization mi-organizacion --output report.json --repository api 
 ```
 
 El progreso se muestra por stderr; el informe JSON se escribe solo en el archivo
-indicado por `--output`. Un repositorio que no pueda analizarse se registra en el
-informe y no interrumpe el procesamiento de los demás.
+indicado por `--output`. Los SBOMs se escriben por defecto en el directorio
+`sboms/` junto al informe, con una carpeta única por corrida. Un repositorio que
+no pueda analizarse se registra en el informe y no interrumpe el procesamiento de
+los demás.
+
+Cada repositorio seleccionado se prepara antes de consultar sus lenguajes y se
+procesa con Syft, incluso si no es compatible con CodeQL. El estado de CodeQL y
+el de `sbom` son independientes: un SBOM exitoso se conserva si falla CodeQL y
+CodeQL continúa si Syft falla. Un fallo al clonar omite el SBOM, pues no hay una
+revisión local que inventariar. El resumen final separa hallazgos de CodeQL de
+los SBOMs generados, fallidos, omitidos y de su cantidad total de componentes.
 
 ## Reutilización de repositorios
 
@@ -150,8 +160,9 @@ recalculan desde los resultados; los demás campos desconocidos se rechazan.
 
 ## Ejecutor Syft desde Python
 
-`SyftRunner` ya genera SBOMs sobre clones locales. Su conexión con `miner scan`
-y el comando `miner sbom` se incorporarán en las siguientes features.
+`SyftRunner` genera SBOMs sobre clones locales y `miner scan` lo utiliza
+automáticamente. El comando independiente `miner sbom` se incorporará en la
+siguiente feature.
 Requiere el binario `syft` en el `PATH`; consulta la
 [instalación oficial de Syft](https://oss.anchore.com/docs/installation/syft/)
 y comprueba que responde con `syft version -o json`.

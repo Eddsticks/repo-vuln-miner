@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection
 from contextlib import AbstractContextManager
+from pathlib import Path
 
 from repo_vuln_miner.codeql.analysis import CodeQLAnalysisError, CodeQLRunner
 from repo_vuln_miner.codeql.sarif import SarifNormalizationError, SarifNormalizer
@@ -13,13 +14,17 @@ from repo_vuln_miner.domain.models import (
     Finding,
     OrganizationScan,
     RepositoryResult,
+    SbomResult,
+    SbomStatus,
 )
 from repo_vuln_miner.github.catalog import GitHubCatalog, GitHubCatalogError, GitHubRepository
 from repo_vuln_miner.github.workspace import ClonedRepository, RepositoryCloneError, RepositoryWorkspace
 from repo_vuln_miner.languages.adapters import LanguageAdapterRegistry, ResolvedLanguageAdapter
+from repo_vuln_miner.syft.generation import SyftExecutionError, SyftRunner
 
 ProgressReporter = Callable[[str], None]
 WorkspaceFactory = Callable[[], AbstractContextManager[RepositoryWorkspace]]
+SyftRunnerFactory = Callable[[], SyftRunner]
 
 
 class ScanOrchestrationError(RuntimeError):
@@ -32,7 +37,7 @@ class ScanOrchestrationError(RuntimeError):
 
 
 class ScanOrchestrator:
-    """Conecta catálogo, clonación, CodeQL y SARIF sin depender de la CLI."""
+    """Coordina clones, Syft y CodeQL con resultados independientes de cada etapa."""
 
     def __init__(
         self,
@@ -41,18 +46,21 @@ class ScanOrchestrator:
         codeql_runner: CodeQLRunner,
         sarif_normalizer: SarifNormalizer,
         workspace_factory: WorkspaceFactory = RepositoryWorkspace,
+        syft_runner_factory: SyftRunnerFactory = SyftRunner,
     ) -> None:
         self._catalog = catalog
         self._language_registry = language_registry
         self._codeql_runner = codeql_runner
         self._sarif_normalizer = sarif_normalizer
         self._workspace_factory = workspace_factory
+        self._syft_runner_factory = syft_runner_factory
 
     def scan(
         self,
         organization: str,
         selected_repositories: Collection[str] | None = None,
         progress: ProgressReporter | None = None,
+        sbom_directory: Path = Path("results/sboms"),
     ) -> OrganizationScan:
         """Analiza los repositorios seleccionados y devuelve un informe completo o parcial."""
         emit = progress or (lambda _message: None)
@@ -65,42 +73,52 @@ class ScanOrchestrator:
             ) from error
 
         results: list[RepositoryResult] = []
+        syft_runner = self._syft_runner_factory()
         for repository in repositories:
-            emit(f"{repository.name}: detecting languages")
-            results.append(self._scan_repository(repository, emit))
+            results.append(self._scan_repository(repository, syft_runner, sbom_directory, emit))
         return OrganizationScan(organization=organization.strip(), repositories=results)
 
     def _scan_repository(
         self,
         repository: GitHubRepository,
+        syft_runner: SyftRunner,
+        sbom_directory: Path,
         emit: ProgressReporter,
     ) -> RepositoryResult:
-        try:
-            detected_languages = self._catalog.get_languages(repository)
-        except GitHubCatalogError:
-            emit(f"{repository.name}: failed during language detection")
-            return self._failed_result(
-                repository,
-                [],
-                "language_detection",
-                "GitHub could not retrieve repository languages",
-            )
-
-        adapters = self._language_registry.resolve(detected_languages)
-        if not adapters:
-            emit(f"{repository.name}: no supported languages")
-            return RepositoryResult(
-                name=repository.name,
-                url=repository.url,
-                status=AnalysisStatus.UNSUPPORTED,
-                detected_languages=detected_languages,
-                default_branch=repository.default_branch,
-            )
-
+        cloned_repository: ClonedRepository | None = None
+        sbom: SbomResult | None = None
+        detected_languages: list[str] = []
         try:
             with self._workspace_factory() as workspace:
-                emit(f"{repository.name}: cloning")
+                emit(f"{repository.name}: preparing repository")
                 cloned_repository = workspace.clone(repository)
+                sbom = self._generate_sbom(cloned_repository, syft_runner, sbom_directory, emit)
+
+                emit(f"{repository.name}: detecting languages")
+                try:
+                    detected_languages = self._catalog.get_languages(repository)
+                except GitHubCatalogError:
+                    emit(f"{repository.name}: failed during language detection")
+                    return self._failed_result(
+                        repository, [], "language_detection",
+                        "GitHub could not retrieve repository languages",
+                        cloned_repository=cloned_repository, sbom=sbom,
+                    )
+
+                adapters = self._language_registry.resolve(detected_languages)
+                if not adapters:
+                    emit(f"{repository.name}: no supported languages")
+                    return RepositoryResult(
+                        name=repository.name,
+                        full_name=f"{repository.owner}/{repository.name}",
+                        url=repository.url,
+                        status=AnalysisStatus.UNSUPPORTED,
+                        detected_languages=detected_languages,
+                        default_branch=repository.default_branch,
+                        commit_sha=cloned_repository.commit_sha,
+                        sbom=sbom,
+                    )
+
                 findings = self._analyze_adapters(
                     repository.name,
                     cloned_repository,
@@ -110,16 +128,27 @@ class ScanOrchestrator:
                 )
         except RepositoryCloneError as error:
             emit(f"{repository.name}: failed during clone")
-            return self._failed_result(repository, detected_languages, "clone", error.reason)
-        except CodeQLAnalysisError as error:
+            return self._failed_result(
+                repository, detected_languages, "clone", error.reason,
+                cloned_repository=cloned_repository, sbom=sbom,
+            )
+        except (CodeQLAnalysisError, SarifNormalizationError) as error:
             emit(f"{repository.name}: failed during {error.stage}")
-            return self._failed_result(repository, detected_languages, error.stage, error.message)
-        except SarifNormalizationError as error:
-            emit(f"{repository.name}: failed during {error.stage}")
-            return self._failed_result(repository, detected_languages, error.stage, error.message)
+            return self._failed_result(
+                repository, detected_languages, error.stage, error.message,
+                cloned_repository=cloned_repository, sbom=sbom,
+            )
+        except OSError:
+            emit(f"{repository.name}: failed during workspace access or cleanup")
+            return self._failed_result(
+                repository, detected_languages, "workspace",
+                "Repository workspace could not be accessed or cleaned up",
+                cloned_repository=cloned_repository, sbom=sbom,
+            )
 
         return RepositoryResult(
             name=repository.name,
+            full_name=f"{repository.owner}/{repository.name}",
             url=repository.url,
             status=AnalysisStatus.ANALYZED,
             detected_languages=detected_languages,
@@ -129,7 +158,29 @@ class ScanOrchestrator:
             findings=findings,
             default_branch=repository.default_branch,
             commit_sha=cloned_repository.commit_sha,
+            sbom=sbom,
         )
+
+    @staticmethod
+    def _generate_sbom(
+        cloned_repository: ClonedRepository,
+        syft_runner: SyftRunner,
+        sbom_directory: Path,
+        emit: ProgressReporter,
+    ) -> SbomResult:
+        name = cloned_repository.repository.name
+        emit(f"{name}: generating SBOM")
+        try:
+            result = syft_runner.generate(cloned_repository, sbom_directory)
+        except SyftExecutionError as error:
+            emit(f"{name}: SBOM failed during {error.stage}: {error.message}")
+            return SbomResult(
+                status=SbomStatus.FAILED,
+                syft_version=error.syft_version,
+                error=AnalysisError(stage=error.stage, message=error.message),
+            )
+        emit(f"{name}: SBOM generated: {result.component_count} components")
+        return result
 
     def _analyze_adapters(
         self,
@@ -153,12 +204,19 @@ class ScanOrchestrator:
         detected_languages: Collection[str],
         stage: str,
         message: str,
+        *,
+        cloned_repository: ClonedRepository | None = None,
+        sbom: SbomResult | None = None,
     ) -> RepositoryResult:
+        error = AnalysisError(stage=stage, message=message)
         return RepositoryResult(
             name=repository.name,
+            full_name=f"{repository.owner}/{repository.name}",
             url=repository.url,
             status=AnalysisStatus.FAILED,
             detected_languages=list(detected_languages),
-            error=AnalysisError(stage=stage, message=message),
+            error=error,
             default_branch=repository.default_branch,
+            commit_sha=cloned_repository.commit_sha if cloned_repository is not None else None,
+            sbom=sbom if sbom is not None else SbomResult(status=SbomStatus.SKIPPED, error=error),
         )
