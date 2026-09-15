@@ -13,8 +13,17 @@ from typer.testing import CliRunner
 from repo_vuln_miner import __version__
 from repo_vuln_miner import cli
 from repo_vuln_miner.cli import app
-from repo_vuln_miner.domain.models import AnalysisError, AnalysisStatus, OrganizationScan, RepositoryResult
+from repo_vuln_miner.domain.models import (
+    AnalysisError,
+    AnalysisStatus,
+    OrganizationScan,
+    RepositoryResult,
+    SbomReport,
+    SbomRepositoryResult,
+    SbomResult,
+)
 from repo_vuln_miner.orchestration.scan import ScanOrchestrationError
+from repo_vuln_miner.orchestration.sbom import SbomOrchestrationError
 from repo_vuln_miner.domain.models import Finding
 from repo_vuln_miner.github.catalog import GitHubRepository
 from repo_vuln_miner.github.workspace import ClonedRepository
@@ -211,6 +220,134 @@ def test_scan_passes_persistent_repository_directory(
     result = CliRunner().invoke(app, args)
     assert result.exit_code == 0
     assert configured == [expected]
+
+
+def test_scan_accepts_a_custom_sbom_directory(tmp_path: Path, monkeypatch) -> None:
+    scan_orchestrator = FakeScanOrchestrator(partial_report())
+    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda **_: scan_orchestrator)
+    output = tmp_path / "report.json"
+    sbom_dir = tmp_path / "generated inventories"
+
+    result = CliRunner().invoke(app, [
+        "scan", "--organization", "example", "--output", str(output), "--sbom-dir", str(sbom_dir),
+    ])
+
+    assert result.exit_code == 0
+    assert scan_orchestrator.sbom_directories == [sbom_dir]
+
+
+class FakeSbomOrchestrator:
+    def __init__(self, report: SbomReport | None = None, error: Exception | None = None) -> None:
+        self.report = report
+        self.error = error
+        self.calls: list[tuple[str, Path, list[str] | None]] = []
+
+    def generate(self, organization: str, output_dir: Path, selected_repositories, progress) -> SbomReport:
+        self.calls.append((organization, output_dir, selected_repositories))
+        progress("Reading registered repositories for example")
+        if self.error is not None:
+            raise self.error
+        assert self.report is not None
+        return self.report
+
+
+def sbom_report(artifact: Path) -> SbomReport:
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text('{"bomFormat":"CycloneDX","specVersion":"1.6"}', encoding="utf-8")
+    return SbomReport(organization="example", repositories=[
+        SbomRepositoryResult(
+            full_name="example/api",
+            commit_sha="a" * 40,
+            sbom=SbomResult(
+                status="generated",
+                generated_at="2026-09-15T18:30:00Z",
+                syft_version="1.0.0",
+                component_count=0,
+                path=artifact,
+            ),
+        ),
+        SbomRepositoryResult(
+            full_name="example/broken",
+            commit_sha="b" * 40,
+            sbom=SbomResult(
+                status="failed",
+                error=AnalysisError(stage="sbom_generation", message="Syft failed"),
+            ),
+        ),
+    ])
+
+
+def test_sbom_uses_only_the_local_orchestrator_and_writes_report(tmp_path: Path, monkeypatch) -> None:
+    output = tmp_path / "reports" / "sbom-report.json"
+    output_dir = tmp_path / "generated"
+    fake = FakeSbomOrchestrator(sbom_report(output_dir / "run" / "example" / "api.cdx.json"))
+    configured: list[Path] = []
+
+    def create_orchestrator(repos_directory: Path) -> FakeSbomOrchestrator:
+        configured.append(repos_directory)
+        return fake
+
+    monkeypatch.setattr(cli, "create_sbom_orchestrator", create_orchestrator)
+    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda **_: pytest.fail("CodeQL must not run"))
+    monkeypatch.setattr(cli.GitHubCatalog, "from_environment", lambda: pytest.fail("GitHub must not run"))
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    result = CliRunner().invoke(app, [
+        "sbom", "--organization", "example", "--repos-dir", str(tmp_path / "repos"),
+        "--output-dir", str(output_dir), "--output", str(output),
+        "--repository", "api", "--repository", "broken",
+    ])
+
+    assert result.exit_code == 0
+    assert result.stdout == ""
+    assert configured == [tmp_path / "repos"]
+    assert fake.calls == [("example", output_dir, ["api", "broken"])]
+    assert "Reading registered repositories" in result.stderr
+    assert "Writing SBOM report" in result.stderr
+    assert "SBOM complete: 2 repositories, 1 generated, 1 failed, 0 skipped, 0 components" in result.stderr
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["summary"] == {
+        "repositories": 2, "generated": 1, "failed": 1, "skipped": 0, "components": 0,
+    }
+    assert payload["repositories"][0]["full_name"] == "example/api"
+    assert Path(payload["repositories"][0]["sbom"]["path"]).is_file()
+
+
+def test_sbom_global_error_preserves_existing_output(tmp_path: Path, monkeypatch) -> None:
+    output = tmp_path / "sbom-report.json"
+    output.write_text("existing report", encoding="utf-8")
+    fake = FakeSbomOrchestrator(error=SbomOrchestrationError("Repository manifest could not be read"))
+    monkeypatch.setattr(cli, "create_sbom_orchestrator", lambda *_: fake)
+
+    result = CliRunner().invoke(app, [
+        "sbom", "--organization", "example", "--output-dir", str(tmp_path / "generated"),
+        "--output", str(output),
+    ])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "Error: Repository manifest could not be read" in result.stderr
+    assert output.read_text(encoding="utf-8") == "existing report"
+
+
+def test_sbom_write_error_preserves_existing_output(tmp_path: Path, monkeypatch) -> None:
+    output = tmp_path / "sbom-report.json"
+    output.write_text("existing report", encoding="utf-8")
+    monkeypatch.setattr(
+        cli, "create_sbom_orchestrator",
+        lambda *_: FakeSbomOrchestrator(sbom_report(tmp_path / "generated" / "api.cdx.json")),
+    )
+    monkeypatch.setattr(cli, "write_report_json", lambda *_: (_ for _ in ()).throw(OSError("disk full")))
+
+    result = CliRunner().invoke(app, [
+        "sbom", "--organization", "example", "--output-dir", str(tmp_path / "generated"),
+        "--output", str(output),
+    ])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "Error: SBOM report could not be written" in result.stderr
+    assert output.read_text(encoding="utf-8") == "existing report"
 
 
 @pytest.mark.parametrize("syft_failure", [False, True])
