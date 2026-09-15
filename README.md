@@ -7,7 +7,32 @@ seguridad mediante CodeQL.
 
 - Python 3.11 o superior.
 - Git y CodeQL CLI instalados.
+- Syft 1.48.0 instalado para generar SBOMs.
 - Un token de GitHub configurado en `GITHUB_TOKEN`.
+
+## Instalar Syft
+
+La integración continua y las comprobaciones de este proyecto usan Syft
+**1.48.0**. Instala esa misma versión para resultados reproducibles.
+
+En Linux x86_64:
+
+```bash
+SYFT_VERSION=1.48.0
+mkdir -p "$HOME/.local/bin"
+curl --fail --location --output /tmp/syft.tar.gz "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+tar -xzf /tmp/syft.tar.gz -C /tmp syft
+install -m 0755 /tmp/syft "$HOME/.local/bin/syft"
+export PATH="$HOME/.local/bin:$PATH"
+syft version -o json
+```
+
+En macOS, descarga el archivo `syft_1.48.0_darwin_amd64.tar.gz` o
+`syft_1.48.0_darwin_arm64.tar.gz` del
+[release oficial de Syft](https://github.com/anchore/syft/releases/tag/v1.48.0)
+y coloca el binario en un directorio de `PATH`. También puedes usar los métodos
+de instalación alternativos de la [documentación de Anchore](https://oss.anchore.com/docs/installation/syft/),
+pero comprueba después la versión con `syft version -o json`.
 
 ## Desarrollo
 
@@ -149,11 +174,10 @@ El informe `--output` es un `SbomReport` independiente: cada entrada contiene
 Syft se registra para ese repositorio y el resto continúa. Los informes y los
 SBOMs de corridas anteriores no se modifican.
 
-## Modelos de resultados SBOM (preparación de 0.2.0)
+## Resultados SBOM
 
-El dominio ya permite representar los resultados de Syft con Pydantic. Su
-ejecución automática y el comando independiente de SBOM se incorporarán en las
-siguientes features; actualmente `scan` sigue ejecutando solamente CodeQL.
+El dominio representa los resultados de Syft con Pydantic. `scan` genera el SBOM
+automáticamente y el comando `sbom` lo puede regenerar desde los clones locales.
 
 En el informe general, cada resultado puede incluir `full_name`
 (`owner/repository`) y `sbom`, además del `commit_sha` existente. El campo
@@ -254,10 +278,38 @@ Los fallos se comunican como `SyftExecutionError`, con `stage`, `message` y
 stdout ni stderr del proceso. Una generación fallida elimina su salida temporal
 y permite procesar los demás repositorios con la misma instancia.
 
-Las pruebas del ejecutor (`pytest tests/syft`) simulan procesos y archivos;
-no requieren Syft instalado ni acceso a red. La comprobación con el binario
-real y el contraste con archivos de dependencias corresponden a la feature
-de verificación y documentación.
+Las pruebas unitarias del ejecutor (`pytest tests/syft/test_generation.py`)
+simulan procesos y archivos, por lo que no requieren Syft. La comprobación real
+es `pytest tests/syft/test_real_integration.py`; se omite si Syft no está en
+`PATH` o si no se define `SYFT_BINARY`. Para ejecutarla con la versión fijada:
+
+```bash
+SYFT_BINARY="$(command -v syft)" EXPECTED_SYFT_VERSION=1.48.0 \
+  pytest tests/syft/test_real_integration.py
+```
+
+## Verificación de componentes
+
+Los fixtures versionados en `tests/fixtures/sbom/` permiten contrastar el
+inventario con archivos de dependencias reales. Con Syft 1.48.0 se verificó:
+
+| Fixture | Archivo contrastado | Componente esperado y reportado |
+| --- | --- | --- |
+| Node.js | `node/package-lock.json` | `express@4.21.0` |
+| Python | `python/requirements.txt` | `requests@2.32.3` |
+
+Syft también reportó componentes asociados a los propios archivos de
+declaración o bloqueo —por ejemplo, `package-lock.json` y `requirements.txt`—
+y, para Node.js, el componente del proyecto raíz. Esos elementos no son
+dependencias declaradas. El campo `component_count` registra todos los objetos
+de la lista CycloneDX `components`, salvo `metadata.component`; por eso puede
+ser mayor que el número de dependencias comparadas. El inventario depende de
+los archivos presentes en el clon y de los catalogadores que Syft pueda aplicar:
+no garantiza descubrir dependencias dinámicas, no fijadas o ausentes de los
+archivos disponibles.
+
+La CI ejecuta las pruebas unitarias en cada cambio y un job separado descarga
+Syft 1.48.0 y ejecuta esta verificación real. También cubre ramas `release/**`.
 
 ## Autenticación con GitHub
 
