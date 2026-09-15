@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 from typer.testing import CliRunner
 
 from repo_vuln_miner import __version__
@@ -86,7 +88,7 @@ def test_scan_writes_only_json_output_and_reports_progress_to_stderr(
 ) -> None:
     output = tmp_path / "result.json"
     scan_orchestrator = FakeScanOrchestrator(partial_report())
-    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda: scan_orchestrator)
+    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda **_: scan_orchestrator)
 
     result = CliRunner().invoke(
         app,
@@ -117,7 +119,7 @@ def test_scan_global_error_preserves_existing_output(tmp_path: Path, monkeypatch
     scan_orchestrator = FakeScanOrchestrator(
         error=ScanOrchestrationError("repository_discovery", "GitHub could not list repositories")
     )
-    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda: scan_orchestrator)
+    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda **_: scan_orchestrator)
 
     result = CliRunner().invoke(
         app,
@@ -149,7 +151,7 @@ def test_scan_without_github_token_preserves_existing_output(tmp_path: Path, mon
 def test_scan_without_repository_option_does_not_apply_a_filter(tmp_path: Path, monkeypatch) -> None:
     output = tmp_path / "result.json"
     scan_orchestrator = FakeScanOrchestrator(partial_report())
-    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda: scan_orchestrator)
+    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda **_: scan_orchestrator)
 
     result = CliRunner().invoke(
         app,
@@ -163,7 +165,7 @@ def test_scan_without_repository_option_does_not_apply_a_filter(tmp_path: Path, 
 def test_scan_write_error_preserves_existing_output(tmp_path: Path, monkeypatch) -> None:
     output = tmp_path / "result.json"
     output.write_text("existing report", encoding="utf-8")
-    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda: FakeScanOrchestrator(partial_report()))
+    monkeypatch.setattr(cli, "create_scan_orchestrator", lambda **_: FakeScanOrchestrator(partial_report()))
 
     def failing_writer(*_: object) -> None:
         raise OSError("disk full")
@@ -178,3 +180,23 @@ def test_scan_write_error_preserves_existing_output(tmp_path: Path, monkeypatch)
     assert result.stdout == ""
     assert "Error: report could not be written" in result.stderr
     assert output.read_text(encoding="utf-8") == "existing report"
+
+
+@pytest.mark.parametrize("custom_directory", [False, True])
+def test_scan_passes_persistent_repository_directory(
+    tmp_path: Path, monkeypatch, custom_directory: bool,
+) -> None:
+    expected = tmp_path / "persistent clones" if custom_directory else Path(".miner/repos")
+    configured: list[Path] = []
+
+    def create_orchestrator(repos_directory: Path) -> FakeScanOrchestrator:
+        configured.append(repos_directory)
+        return FakeScanOrchestrator(partial_report())
+
+    monkeypatch.setattr(cli, "create_scan_orchestrator", create_orchestrator)
+    args = ["scan", "--organization", "example", "--output", str(tmp_path / "report.json")]
+    if custom_directory:
+        args.extend(["--repos-dir", str(expected)])
+    result = CliRunner().invoke(app, args)
+    assert result.exit_code == 0
+    assert configured == [expected]

@@ -59,6 +59,41 @@ El progreso se muestra por stderr; el informe JSON se escribe solo en el archivo
 indicado por `--output`. Un repositorio que no pueda analizarse se registra en el
 informe y no interrumpe el procesamiento de los demás.
 
+## Reutilización de repositorios
+
+Los clones se conservan por defecto en `.miner/repos/<owner>/<repository>`.
+Para elegir otro directorio:
+
+```bash
+miner scan --organization mi-organizacion --repos-dir ./results/repos --output ./results/report.json
+```
+
+El archivo `<repos-dir>/manifest.json` registra la versión del formato, el
+propietario y nombre de cada repositorio, su rama predeterminada al clonarlo,
+la ruta relativa del clon y el último commit comprobado. No almacena tokens ni
+URLs de autenticación. Los clones y el manifiesto deben conservarse juntos.
+Los directorios predeterminados `.miner/` y `results/` están ignorados por Git;
+si eliges otra ruta dentro del proyecto, añádela a tu configuración de exclusión.
+
+Al repetir un escaneo, el miner reutiliza los clones registrados y consulta su
+HEAD local: **no ejecuta `fetch` ni `pull`**. Para obtener una descarga nueva,
+indica un directorio distinto. El escaneo sigue consultando el catálogo de GitHub
+y ejecutando CodeQL; este cambio prepara la reutilización para el futuro comando
+independiente de SBOM.
+
+Un clon modificado, incompleto o ausente se registra como un fallo del
+repositorio. También se rechazan archivos adicionales, incluso los ignorados
+por Git, para que el contenido analizado corresponda al commit informado.
+El miner no sobrescribe directorios existentes sin registro ni importa clones
+manuales. Las bases CodeQL y los SARIF siguen siendo temporales y se eliminan al
+cerrar el workspace, también cuando falla el análisis.
+
+Desde Python, `RepositoryWorkspace(repos_directory=Path("..."))` permite leer
+el catálogo con `read_manifest()` y abrir un clon mediante
+`open_registered(owner, name)` dentro de su contexto `with`, sin consultar GitHub.
+El manifiesto admite el uso secuencial; no ejecutes procesos concurrentes sobre
+el mismo directorio de clones.
+
 ## Autenticación con GitHub
 
 El miner requiere `GITHUB_TOKEN` para todas las consultas a la API de GitHub.
