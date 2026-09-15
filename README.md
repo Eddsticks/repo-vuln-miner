@@ -94,6 +94,60 @@ el catálogo con `read_manifest()` y abrir un clon mediante
 El manifiesto admite el uso secuencial; no ejecutes procesos concurrentes sobre
 el mismo directorio de clones.
 
+## Modelos de resultados SBOM (preparación de 0.2.0)
+
+El dominio ya permite representar los resultados de Syft con Pydantic. Su
+ejecución automática y el comando independiente de SBOM se incorporarán en las
+siguientes features; actualmente `scan` sigue ejecutando solamente CodeQL.
+
+En el informe general, cada resultado puede incluir `full_name`
+(`owner/repository`) y `sbom`, además del `commit_sha` existente. El campo
+`status` del repositorio sigue describiendo CodeQL; `sbom.status` describe Syft.
+Por ejemplo, un fallo de CodeQL puede coexistir con un SBOM generado.
+
+El objeto `sbom` contiene:
+
+| Campo | Contrato |
+| --- | --- |
+| `status` | `generated`, `failed` o `skipped`. |
+| `generated_at` | Fecha con zona horaria, normalizada a UTC; solo para un SBOM generado. |
+| `syft_version` | Versión de Syft; obligatoria en éxitos y opcional si no se pudo obtener. |
+| `component_count` | Entero no negativo; cero es un éxito válido. Solo aparece en éxitos. |
+| `path` | Ruta absoluta al CycloneDX JSON original; solo aparece en éxitos. |
+| `error` | Etapa y mensaje del fallo o motivo de omisión; obligatorio para `failed` y `skipped`. |
+
+Un resultado `generated` exige fecha, versión, cantidad y ruta, y el repositorio
+debe identificar su commit. Un resultado fallido u omitido no admite fecha de
+generación, cantidad ni ruta de un artefacto anterior. La versión de Syft y el
+commit se conservan cuando están disponibles. El SBOM completo no se incorpora
+al informe ni se modifica al serializar sus metadatos.
+
+Ejemplo del objeto `sbom` para un inventario vacío generado correctamente:
+
+```json
+{
+  "status": "generated",
+  "generated_at": "2026-09-15T18:30:00Z",
+  "syft_version": "1.0.0",
+  "component_count": 0,
+  "path": "/reports/example/app.cdx.json"
+}
+```
+
+`OrganizationScan.summary` conserva los contadores de CodeQL.
+`OrganizationScan.sbom_summary` cuenta únicamente los repositorios con un
+resultado SBOM: `repositories`, `generated`, `failed`, `skipped` y `components`.
+Los informes anteriores, sin `sbom`, se admiten y aportan cero a este resumen;
+no se consideran fallidos ni omitidos. `full_name` también es opcional en
+resultados antiguos, pero obligatorio cuando hay metadatos SBOM.
+
+Para una corrida independiente, `SbomReport` contiene `organization`,
+`repositories` y `summary`. Cada entrada es un `SbomRepositoryResult` con
+`full_name`, `commit_sha` cuando se conoce y `sbom`; no exige datos de CodeQL.
+Ambos informes usan `write_report_json`, que omite valores ausentes y reemplaza
+el archivo atómicamente. Al cargar un informe, los contadores derivados se
+recalculan desde los resultados; los demás campos desconocidos se rechazan.
+
 ## Autenticación con GitHub
 
 El miner requiere `GITHUB_TOKEN` para todas las consultas a la API de GitHub.

@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from repo_vuln_miner.domain.models import OrganizationScan
+from repo_vuln_miner.domain.models import OrganizationScan, SbomReport
 
 
-def write_report_json(report: OrganizationScan, output: Path) -> None:
+def write_report_json(report: OrganizationScan | SbomReport, output: Path) -> None:
     """Serializa un informe Pydantic y lo reemplaza atómicamente en ``output``."""
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary_path: Path | None = None
