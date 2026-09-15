@@ -12,10 +12,11 @@ from repo_vuln_miner.github.workspace import RepositoryWorkspace
 from repo_vuln_miner.languages.adapters import default_language_registry
 from repo_vuln_miner.orchestration.scan import ScanOrchestrationError, ScanOrchestrator
 from repo_vuln_miner.reporting.serialization import write_report_json
+from repo_vuln_miner.syft.generation import SyftRunner
 
 app = typer.Typer(
     name="miner",
-    help="Mina hallazgos de seguridad de repositorios mediante GitHub y CodeQL.",
+    help="Mina hallazgos de seguridad con CodeQL y genera inventarios SBOM con Syft.",
     invoke_without_command=True,
 )
 
@@ -46,6 +47,7 @@ def create_scan_orchestrator(repos_directory: Path = Path(".miner/repos")) -> Sc
         codeql_runner=CodeQLRunner(),
         sarif_normalizer=SarifNormalizer(),
         workspace_factory=lambda: RepositoryWorkspace(repos_directory=repos_directory),
+        syft_runner_factory=SyftRunner,
     )
 
 
@@ -64,12 +66,13 @@ def scan(
         help="Directorio persistente de clones administrados por el miner.",
     ),
 ) -> None:
-    """Analiza repositorios GitHub y escribe el informe JSON indicado."""
+    """Genera SBOMs, analiza repositorios GitHub y escribe el informe JSON indicado."""
     try:
         report = create_scan_orchestrator(repos_directory=repos_dir).scan(
             organization,
             selected_repositories=repository or None,
             progress=lambda message: typer.echo(message, err=True),
+            sbom_directory=output.parent / "sboms",
         )
     except (GitHubAuthenticationError, ScanOrchestrationError) as error:
         typer.echo(f"Error: {error.message}", err=True)
@@ -84,7 +87,10 @@ def scan(
 
     typer.echo(
         f"Scan complete: {report.summary.repositories} repositories, "
-        f"{report.summary.findings} findings",
+        f"{report.summary.findings} findings; "
+        f"SBOMs: {report.sbom_summary.generated} generated, "
+        f"{report.sbom_summary.failed} failed, {report.sbom_summary.skipped} skipped, "
+        f"{report.sbom_summary.components} components",
         err=True,
     )
 
